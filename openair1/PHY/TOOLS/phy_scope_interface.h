@@ -70,7 +70,6 @@ enum scopeDataType {
   psbchDlChEstimateTime,
   psbchLlr,
   psbchRxdataF_comp,
-  gNBulDelay,
   MAX_SCOPE_TYPES,
   gNBPuschRxIq = MAX_SCOPE_TYPES,
   gNBPuschLlr,

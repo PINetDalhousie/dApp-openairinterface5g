@@ -25,14 +25,23 @@
 	<htmlTabName>EPC-Closure</htmlTabName>
 	<htmlTabIcon>log-out</htmlTabIcon>
 	<TestCaseRequestedList>
-060000
+060000 060001 060002
 	</TestCaseRequestedList>
 	<TestCaseExclusionList></TestCaseExclusionList>
 
 	<testCase id="060000">
-		<class>UndeployCoreNetwork</class>
-		<desc>Terminate EPC</desc>
-		<cn_id>ltebox-nano</cn_id>
+		<class>Terminate_HSS</class>
+		<desc>Terminate HSS</desc>
+	</testCase>
+
+	<testCase id="060001">
+		<class>Terminate_MME</class>
+		<desc>Terminate MME</desc>
+	</testCase>
+
+	<testCase id="060002">
+		<class>Terminate_SPGW</class>
+		<desc>Terminate SPGW</desc>
 	</testCase>
 
 </testCaseList>

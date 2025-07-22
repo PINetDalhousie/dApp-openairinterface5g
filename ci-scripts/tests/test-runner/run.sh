@@ -30,6 +30,11 @@ python3 main.py \
   --UEUserName=NONE \
   --UEPassword=NONE \
   --UESourceCodePath=NONE \
+  --EPCIPAddress=localhost \
+  --EPCType=OAI \
+  --EPCUserName=NONE \
+  --EPCPassword=NONE \
+  --EPCSourceCodePath=NONE \
   --XMLTestFile=tests/test-runner/test.xml
 
 python3 main.py \

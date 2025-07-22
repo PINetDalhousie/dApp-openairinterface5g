@@ -86,6 +86,7 @@
 #include "mac_rrc_ul.h"
 
 /* MAC */
+#include "LAYER2/NR_MAC_COMMON/nr_mac_extern.h"
 #include "LAYER2/NR_MAC_COMMON/nr_mac_common.h"
 #include "NR_TAG.h"
 
@@ -102,7 +103,7 @@
 #define MAX_NUM_NR_PRACH_PREAMBLES 64
 #define MIN_NUM_PRBS_TO_SCHEDULE  5
 
-uint8_t nr_get_rv(int rel_round);
+extern const uint8_t nr_rv_round_map[4];
 
 /*! \brief NR_list_t is a "list" (of users, HARQ processes, slices, ...).
  * Especially useful in the scheduler and to keep "classes" of users. */
@@ -151,12 +152,6 @@ typedef struct nr_mac_timers {
   int t319;
 } nr_mac_timers_t;
 
-typedef struct nr_redcap_config {
-  int8_t cellBarredRedCap1Rx_r17;
-  int8_t cellBarredRedCap2Rx_r17;
-  uint8_t intraFreqReselectionRedCap_r17;
-} nr_redcap_config_t;
-
 typedef struct nr_mac_config_t {
   int sib1_tda;
   nr_pdsch_AntennaPorts_t pdsch_AntennaPorts;
@@ -178,7 +173,6 @@ typedef struct nr_mac_config_t {
   int nb_bfw[2];
   int32_t *bw_list;
   int num_agg_level_candidates[NUM_PDCCH_AGG_LEVELS];
-  nr_redcap_config_t *redcap;
 } nr_mac_config_t;
 
 typedef struct NR_preamble_ue {
@@ -219,7 +213,7 @@ typedef struct {
   /// Frame where Msg2 is to be sent
   frame_t Msg2_frame;
   /// Subframe where Msg3 is to be sent
-  slot_t Msg3_slot;
+  sub_frame_t Msg3_slot;
   /// Frame where Msg3 is to be sent
   frame_t Msg3_frame;
   /// Msg3 time domain allocation index
@@ -307,9 +301,6 @@ typedef struct {
   uint8_t ssb_index[MAX_NUM_OF_SSB];
   //CB preambles for each SSB
   int cb_preambles_per_ssb;
-  /// Max prach length in slots
-  int prach_len;
-  nr_prach_info_t prach_info;
 } NR_COMMON_channels_t;
 
 // SP ZP CSI-RS Resource Set Activation/Deactivation MAC CE
@@ -630,7 +621,7 @@ typedef struct {
 
   /// For UL synchronization: store last UL scheduling grant
   frame_t last_ul_frame;
-  slot_t last_ul_slot;
+  sub_frame_t last_ul_slot;
 
   /// total amount of data awaiting for this UE
   uint32_t num_total_bytes;
@@ -805,8 +796,12 @@ typedef struct {
 
 #define UE_iterator(BaSe, VaR) NR_UE_info_t ** VaR##pptr=BaSe, *VaR; while ((VaR=*(VaR##pptr++)))
 
-typedef void (*nr_pp_impl_dl)(module_id_t mod_id, frame_t frame, slot_t slot);
-typedef bool (*nr_pp_impl_ul)(module_id_t mod_id, frame_t frame, slot_t slot);
+typedef void (*nr_pp_impl_dl)(module_id_t mod_id,
+                              frame_t frame,
+                              sub_frame_t slot);
+typedef bool (*nr_pp_impl_ul)(module_id_t mod_id,
+                              frame_t frame,
+                              sub_frame_t slot);
 
 typedef struct f1_config_t {
   f1ap_setup_req_t *setup_req;
@@ -841,6 +836,9 @@ typedef struct gNB_MAC_INST_s {
   /// Pointer to IF module instance for PHY
   NR_IF_Module_t                  *if_inst;
   pthread_t                       stats_thread;
+#ifdef E3_AGENT
+  pthread_t                       prb_update_thread;
+#endif // E3_AGENT
   /// Pusch target SNR
   int                             pusch_target_snrx10;
   /// RSSI threshold for power control. Limits power control commands when RSSI reaches threshold.
@@ -865,6 +863,9 @@ typedef struct gNB_MAC_INST_s {
   uint16_t pdu_index[NFAPI_CC_MAX];
   /// UL PRBs blacklist
   uint16_t ulprbbl[MAX_BWP_SIZE];
+#ifdef E3_AGENT
+  uint16_t dyn_prbbl[MAX_BWP_SIZE];
+#endif // E3_AGENT
   /// NFAPI Config Request Structure
   nfapi_nr_config_request_scf_t     config[NFAPI_CC_MAX];
   /// a PDCCH PDU groups DCIs per BWP and CORESET. The following structure

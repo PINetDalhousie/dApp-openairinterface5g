@@ -8,7 +8,7 @@
 #include "config.h"
 #include <zmq.h>
 
-// TODO replace pthreads with itti or use a faster way
+// TODO replace pthreads with itti once we (i) figure out how to link them
 // #include "intertask_interface.h"
 // #include "create_tasks.h"
 #include <pthread.h>
@@ -22,25 +22,27 @@
 #include "common/ran_context.h"
 #include "common/utils/LOG/log.h"
 #include "e3_connector.h"
+#include "stdio.h"
 
-#define BUFFER_SIZE 60000
+#define BUFFER_SIZE 80000
 
 #define E3CONFIG_SECTION "E3Configuration"
 
-#define CONFIG_STRING_E3_LINK_PARAM "link"
+#define CONFIG_STRING_E3_LINK_PARAM   "link"
 #define CONFIG_STRING_E3_TRANSPORT_PARAM "transport"
 #define CONFIG_STRING_E3_SAMPLING_PARAM "sampling"
 
-// clang-format off
 /*-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------*/
 /*                                            configuration parameters for the rfsimulator device                                                                              */
 /*   optname                     helpstr                     paramflags           XXXptr                               defXXXval                          type         numelt  */
 /*-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------*/
 #define simOpt PARAMFLAG_NOFREE|PARAMFLAG_CMDLINE_NOPREFIXENABLED
+// clang-format off
 #define E3_PARAMS_DESC {					\
     {"link",             "Link layer for E3",        simOpt,  .strptr=&e3_configs->link,               .defstrval="posix",           TYPE_STRING,    0 },\
     {"transport",        "Transport layer for E3",   simOpt,  .strptr=&(e3_configs->transport),        .defstrval="ipc",                 TYPE_STRING,    0 },\
     {"sampling",         "Sampling of the sensed spectrum (0 means infinite)",    simOpt,  .iptr=&(e3_configs->sampling),      .defintval=0,                     TYPE_INT,       0 },\
+    {"fft_divisor",          "Divisor for FFT size in spectrum sensing (1=full, 2=half, 4=quarter)",    simOpt,  .iptr=&(e3_configs->fft_size_divisor),      .defintval=2,                     TYPE_INT,       0 },\
   };
 // clang-format on
 
@@ -50,7 +52,8 @@ const char *E3_VALID_CONFIGURATIONS[][2] = {
     // {"zmq", "sctp"}, // implemented but not working because zeromq does not support it (yet)
     {"posix", "tcp"},
     {"posix", "sctp"},
-    {"posix", "ipc"}};
+    {"posix", "ipc"}
+};
 
 typedef struct {
   e3_config_t *e3_configs;
@@ -59,8 +62,22 @@ typedef struct {
 
 int *is_on;
 e3_agent_tracer_info_t *tracer_info = NULL;
-e3_agent_controls_t *e3_agent_control = NULL;
+e3_agent_controls_t* e3_agent_control = NULL;
 pthread_t e3_interface_thread;
+
+//variable to store the sequence number of send messages
+static uint32_t sequence_number = 1;
+// Helper function to log the timestamps of sending and receiving messages
+void log_timestamp(const char *label, const char *log_filename, uint32_t seq_number) {
+    struct timespec ts;
+    FILE *log_file = fopen(log_filename, "a"); // Open file in append mode
+    clock_gettime(CLOCK_REALTIME, &ts);
+    if (log_file) {
+        fprintf(log_file, "%s - Timestamp: %ld.%09ld - Sequence Number: %u\n", 
+	        label, ts.tv_sec, ts.tv_nsec, seq_number);
+        fclose(log_file);
+    }
+}
 
 /* this function sends the activated traces to the nr-softmodem */
 void activate_traces(int socket, int number_of_events, int *is_on)
@@ -82,11 +99,11 @@ void activate_traces(int socket, int number_of_events, int *is_on)
     continue;                                         \
   }
 
-void e3_readconfig(e3_config_t *e3_configs)
-{
-  paramdef_t e3_params[] = E3_PARAMS_DESC;
 
-  int ret = config_get(config_get_if(), e3_params, sizeof(e3_params) / sizeof(*(e3_params)), E3CONFIG_SECTION);
+void e3_readconfig(e3_config_t *e3_configs){
+  paramdef_t e3_params[] = E3_PARAMS_DESC;
+  
+  int ret = config_get(config_get_if(), e3_params, sizeof(e3_params)/sizeof(*(e3_params)), E3CONFIG_SECTION);
   AssertFatal(ret >= 0, "configuration couldn't be performed\n");
 
   LOG_I(E3AP,
@@ -96,40 +113,40 @@ void e3_readconfig(e3_config_t *e3_configs)
         e3_configs->sampling);
 }
 
-void validate_configuration(e3_config_t *config)
-{
-  if (!config) {
-    LOG_E(E3AP, "Configuration is null");
-    abort();
-  }
-
-  // Check if link is "posix" or "zmq" using strncmp
-  if (strncmp(config->link, "posix", 5) != 0 && strncmp(config->link, "zmq", 3) != 0) {
-    LOG_E(E3AP, "Wrong link");
-    abort();
-  }
-
-  // Check if transport is "tcp", "sctp", or "ipc" using strncmp
-  if (strncmp(config->transport, "tcp", 3) != 0 && strncmp(config->transport, "sctp", 4) != 0
-      && strncmp(config->transport, "ipc", 3) != 0) {
-    LOG_E(E3AP, "Wrong transport");
-    abort();
-  }
-
-  // Validate the combination of link and transport
-  int combo_valid = 0;
-  for (size_t i = 0; i < sizeof(E3_VALID_CONFIGURATIONS) / sizeof(E3_VALID_CONFIGURATIONS[0]); i++) {
-    if (strncmp(config->link, E3_VALID_CONFIGURATIONS[i][0], strlen(E3_VALID_CONFIGURATIONS[i][0])) == 0
-        && strncmp(config->transport, E3_VALID_CONFIGURATIONS[i][1], strlen(E3_VALID_CONFIGURATIONS[i][1])) == 0) {
-      combo_valid = 1;
-      break;
+void validate_configuration(e3_config_t *config) {
+    if (!config) {
+        LOG_E(E3AP, "Configuration is null");
+        abort();
     }
-  }
 
-  if (!combo_valid) {
-    LOG_E(E3AP, "Wrong combination");
-    abort();
-  }
+    // Check if link is "posix" or "zmq" using strncmp
+    if (strncmp(config->link, "posix", 5) != 0 && strncmp(config->link, "zmq", 3) != 0) {
+        LOG_E(E3AP, "Wrong link");
+        abort();
+    }
+
+    // Check if transport is "tcp", "sctp", or "ipc" using strncmp
+    if (strncmp(config->transport, "tcp", 3) != 0 &&
+        strncmp(config->transport, "sctp", 4) != 0 &&
+        strncmp(config->transport, "ipc", 3) != 0) {
+        LOG_E(E3AP, "Wrong transport");
+        abort();
+    }
+
+    // Validate the combination of link and transport
+    int combo_valid = 0;
+    for (size_t i = 0; i < sizeof(E3_VALID_CONFIGURATIONS) / sizeof(E3_VALID_CONFIGURATIONS[0]); i++) {
+        if (strncmp(config->link, E3_VALID_CONFIGURATIONS[i][0], strlen(E3_VALID_CONFIGURATIONS[i][0])) == 0 &&
+            strncmp(config->transport, E3_VALID_CONFIGURATIONS[i][1], strlen(E3_VALID_CONFIGURATIONS[i][1])) == 0) {
+            combo_valid = 1;
+            break;
+        }
+    }
+
+    if (!combo_valid) {
+        LOG_E(E3AP, "Wrong combination");
+        abort();
+    }
 }
 
 int e3_agent_init()
@@ -142,12 +159,13 @@ int e3_agent_init()
 
   tracer_info = (e3_agent_tracer_info_t *)malloc(sizeof(e3_agent_tracer_info_t));
   e3_agent_control = (e3_agent_controls_t *)malloc(sizeof(e3_agent_controls_t));
-
+  
   pthread_mutex_init(&e3_agent_control->mutex, NULL);
+  pthread_cond_init(&e3_agent_control->cond, NULL);
   e3_agent_control->ready = 0;
 
   LOG_D(E3AP, "Start E3 Agent main thread\n");
-  if (pthread_create(&e3_interface_thread, NULL, e3_agent_dapp_task, (void *)e3_configs) != 0) {
+  if (pthread_create(&e3_interface_thread, NULL, e3_agent_dapp_task, (void *) e3_configs) != 0) {
     LOG_E(E3AP, "Error creating E3 Agent thread: %s\n", strerror(errno));
     return -1;
   }
@@ -160,6 +178,7 @@ int e3_agent_destroy()
     LOG_E(E3AP, "Error joining E3 interface thread: %s\n", strerror(errno));
     return -1;
   }
+
 
   return 0;
 }
@@ -198,10 +217,10 @@ void *subscriber_thread(void *arg)
   int action_list_size;
 
   e3connector->setup_inbound_connection(e3connector);
-  e3_agent_control->action_list = (char *)malloc(MAX_BWP_SIZE * sizeof(uint16_t));
 
   while (1) {
     ret = e3connector->receive(e3connector, buffer, buffer_size);
+
     if (ret < 0) {
       LOG_E(E3AP, "Error in inbound connection: %s\n", strerror(errno));
       abort();
@@ -211,6 +230,13 @@ void *subscriber_thread(void *arg)
       break;
     }
 
+    uint32_t received_sequence_number = *((uint32_t*)buffer);
+    log_timestamp("RECEIVE", "/logs/oai-gnb.log", received_sequence_number);	
+    memmove(buffer, buffer + sizeof(uint32_t), ret - sizeof(uint32_t));
+    ret -= sizeof(uint32_t); // Adjust the buffer size
+      
+
+
     E3_PDU_t *controlAction = decode_E3_PDU(buffer, ret);
 
     // xer_fprint(stderr, &asn_DEF_E3_ControlAction, controlAction);
@@ -219,37 +245,24 @@ void *subscriber_thread(void *arg)
     if (controlAction->present == E3_PDU_PR_controlAction) {
       // This code can be improved, especially the internal function
       u_int8_t *controlPayload = parse_control_action(controlAction->choice.controlAction);
-
-      action_list_size = ((controlPayload[1] << 8) & 0xFF) | (controlPayload[0] & 0xFF);
+  
+      action_list_size = ((controlPayload[1]<<8) & 0xFF) | (controlPayload[0] & 0xFF);
 
       LOG_D(E3AP, "action_list_size = %d\n", action_list_size);
-
+      pthread_mutex_lock(&e3_agent_control->mutex);
       for (size_t i = 0; i < controlAction->choice.controlAction->actionData.size; i++) {
         LOG_D(E3AP, "controlPayload[%zu] = %u\n", i, controlPayload[i]);
       }
-
-      int action_list_size_bits = action_list_size * sizeof(uint16_t);
-      int write_size = (action_list_size_bits < MAX_BWP_SIZE) ? action_list_size_bits : MAX_BWP_SIZE;
-
-      pthread_mutex_lock(&e3_agent_control->mutex);
-      memcpy(e3_agent_control->action_list, controlPayload + 2, write_size);
-
+      e3_agent_control->action_list = (char *)malloc(action_list_size * sizeof(uint16_t));
+      memcpy(e3_agent_control->action_list, controlPayload + 2, action_list_size * sizeof(uint16_t));
+      
       e3_agent_control->action_size = action_list_size;
       for (size_t i = 0; i < action_list_size; i++) {
-        LOG_D(E3AP, "e3_agent_control[%zu] = %d\n", i, ((uint16_t *)e3_agent_control->action_list)[i]);
+          LOG_D(E3AP, "e3_agent_control[%zu] = %d\n", i, ((uint16_t*)e3_agent_control->action_list)[i]);
       }
-
-      memset(e3_agent_control->dyn_prbbl, 0, MAX_BWP_SIZE * sizeof(uint16_t));
-
-      for (int j = 0; j < e3_agent_control->action_size && j < MAX_BWP_SIZE; j++) {
-        e3_agent_control
-            ->dyn_prbbl[(e3_agent_control->action_list[2 * j + 1] << 8 & 0xFF) | (e3_agent_control->action_list[2 * j] & 0xFF)] =
-            0x3FFF;
-      }
-
-      memset(e3_agent_control->action_list, 0, e3_agent_control->action_size * sizeof(uint16_t));
 
       e3_agent_control->ready = 1; // Set ready flag to 1 to indicate data is available
+      pthread_cond_signal(&e3_agent_control->cond); // Notify consumer
       pthread_mutex_unlock(&e3_agent_control->mutex);
 
       free(controlPayload);
@@ -262,7 +275,6 @@ void *subscriber_thread(void *arg)
     free_E3_PDU(controlAction);
   }
 
-  free(e3_agent_control->action_list);
   return NULL;
 }
 
@@ -279,9 +291,10 @@ void *publisher_thread(void *arg)
 
   // Each sensing is done once every 10ms * sampling_threshold
   // this stays here since an xApp or a dApp can potentially change the threshold value
-  e3_agent_control->sampling_threshold =
-      pub_sub_args->e3_configs->sampling; // one delivery each sampling_threshold samples captures
+  e3_agent_control->sampling_threshold = pub_sub_args->e3_configs->sampling; // one delivery each sampling_threshold samples captures
   e3_agent_control->sampling_counter = 0;
+
+  e3_agent_control->fft_size_divisor = pub_sub_args->e3_configs->fft_size_divisor;
 
   /* write on a socket fails if the other end is closed and we get SIGPIPE */
   if (signal(SIGPIPE, SIG_IGN) == SIG_ERR)
@@ -343,8 +356,8 @@ void *publisher_thread(void *arg)
       }
 
       if (e.e[data].bsize > 0) {
-        // E3_PDU_t *indicationMessage = create_indication_message(fake_payload, fake_payload_length);
-        E3_PDU_t *indicationMessage = create_indication_message(e.e[data].b, e.e[data].bsize);
+        // E3_PDU_t *indicationMessage = create_indication_message(fake_payload, fake_payload_length);        
+        E3_PDU_t *indicationMessage = create_indication_message(e.e[data].b, e.e[data].bsize,sequence_number);
 
         if (encode_E3_PDU(indicationMessage, &buffer, &buffer_size) == 0) {
           ret = e3connector->send(e3connector, buffer, buffer_size);
@@ -353,6 +366,8 @@ void *publisher_thread(void *arg)
             LOG_E(E3AP, "Failed to send Indication PDU: %s\n", strerror(errno));
             break;
           } else {
+            log_timestamp("SEND", "/logs/oai-gnb.log", sequence_number);	
+            sequence_number++;
             LOG_D(E3AP, "Delivered message correctly\n");
           }
         } else {
@@ -363,11 +378,6 @@ void *publisher_thread(void *arg)
     }
   }
 
-  free(buffer);
-  if (ebuf.obuf != NULL) {
-    free(ebuf.obuf);
-  }
-  free(pub_sub_args);
   return NULL;
 }
 
@@ -384,7 +394,7 @@ void *e3_agent_dapp_task(void *args_p)
 
   pthread_t pub_thread, sub_thread;
 
-  E3Connector *e3connector = create_connector(e3_configs->link, e3_configs->transport);
+  E3Connector* e3connector = create_connector(e3_configs->link, e3_configs->transport);
   if (e3connector == NULL) {
     LOG_E(E3AP, "Failed to create the E3Connector\n");
     abort();
@@ -393,13 +403,13 @@ void *e3_agent_dapp_task(void *args_p)
   size_t buffer_size = BUFFER_SIZE;
 
   LOG_D(E3AP, "Create sub_thread\n");
-  pthread_create(&sub_thread, NULL, subscriber_thread, (void *)e3connector);
+  pthread_create(&sub_thread, NULL, subscriber_thread, (void*)e3connector);
 
   LOG_D(E3AP, "Create pub_thread\n");
   pub_sub_args_t *pub_sub_args = malloc(sizeof(pub_sub_args_t));
   pub_sub_args->e3_configs = e3_configs;
   pub_sub_args->connector = e3connector;
-  pthread_create(&pub_thread, NULL, publisher_thread, (void *)pub_sub_args);
+  pthread_create(&pub_thread, NULL, publisher_thread, (void*)pub_sub_args);
 
   LOG_D(E3AP, "Setup connection\n");
   ret = e3connector->setup_initial_connection(e3connector);
@@ -435,8 +445,9 @@ void *e3_agent_dapp_task(void *args_p)
   pthread_join(pub_thread, NULL);
 
   free(buffer);
-
+  
   pthread_mutex_destroy(&e3_agent_control->mutex);
+  pthread_cond_destroy(&e3_agent_control->cond);
 
   e3connector->dispose(e3connector);
 

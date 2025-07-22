@@ -75,6 +75,7 @@ endif()
 
 find_path(xran_INCLUDE_DIR
   NAMES
+    xran_common.h
     xran_compression.h
     xran_cp_api.h
     xran_ecpri_owd_measurements.h
@@ -83,7 +84,7 @@ find_path(xran_INCLUDE_DIR
     xran_pkt_up.h
     xran_sync_api.h
   HINTS ${xran_LOCATION}
-  PATH_SUFFIXES api
+  PATH_SUFFIXES api include
   NO_DEFAULT_PATH
 )
 find_library(xran_LIBRARY
@@ -126,19 +127,16 @@ find_package_handle_standard_args(xran
   VERSION_VAR xran_VERSION
 )
 
-# in proper usage of cmake, include directory should only contain "api", but not header files under "src" directory;
-# however, we use xran_dev_get_ctx() and xran_dev_get_ctx_by_id() functions which are defined in xran_common.h;
-# since xran_common.h is under "src" directory, we have to include it in ${xran_INCLUDE_DIRS}
 if(xran_FOUND)
   set(xran_LIBRARIES ${xran_LIBRARY})
-  set(xran_INCLUDE_DIRS ${xran_INCLUDE_DIR} ${xran_INCLUDE_DIR}/../src)
+  set(xran_INCLUDE_DIRS ${xran_INCLUDE_DIR})
 endif()
 
 if(xran_FOUND AND NOT TARGET xran::xran)
   add_library(xran::xran UNKNOWN IMPORTED)
   set_target_properties(xran::xran PROPERTIES
     IMPORTED_LOCATION "${xran_LIBRARY}"
-    INTERFACE_INCLUDE_DIRECTORIES "${xran_INCLUDE_DIRS}"
+    INTERFACE_INCLUDE_DIRECTORIES "${xran_INCLUDE_DIR}"
   )
 endif()
 

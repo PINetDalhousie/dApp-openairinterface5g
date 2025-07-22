@@ -192,6 +192,8 @@ TEST(pusch_power_control, pusch_power_control_msg3)
   current_UL_BWP.BWPSize = 106;
   current_UL_BWP.channel_bandwidth = 40;
   mac.current_UL_BWP = &current_UL_BWP;
+  NR_RACH_ConfigCommon_t nr_rach_ConfigCommon = {0};
+  current_UL_BWP.rach_ConfigCommon = &nr_rach_ConfigCommon;
   mac.nr_band = 78;
   NR_PUSCH_Config_t pusch_Config = {0};
   current_UL_BWP.pusch_Config = &pusch_Config;
@@ -227,8 +229,8 @@ TEST(pusch_power_control, pusch_power_control_msg3)
                             num_rb,
                             start_prb);
 
-  int preambleReceivedTargetPower = -96;
-  mac.ra.prach_resources.ra_preamble_rx_target_power = preambleReceivedTargetPower;
+  long preambleReceivedTargetPower = -96;
+  nr_rach_ConfigCommon.rach_ConfigGeneric.preambleReceivedTargetPower = preambleReceivedTargetPower;
 
   int power = get_pusch_tx_power_ue(&mac,
                                     num_rb,
@@ -245,7 +247,7 @@ TEST(pusch_power_control, pusch_power_control_msg3)
                                     false);
   EXPECT_EQ(power, -84);
   EXPECT_LT(power, P_CMAX);
-  mac.ra.prach_resources.ra_preamble_rx_target_power -= 2;
+  nr_rach_ConfigCommon.rach_ConfigGeneric.preambleReceivedTargetPower -= 2;
 
   int reduced_power = get_pusch_tx_power_ue(&mac,
                                             num_rb,
@@ -370,6 +372,8 @@ TEST(pusch_power_control, pusch_power_control_state_initialization)
   current_UL_BWP.BWPSize = 106;
   current_UL_BWP.channel_bandwidth = 40;
   mac.current_UL_BWP = &current_UL_BWP;
+  NR_RACH_ConfigCommon_t nr_rach_ConfigCommon = {0};
+  current_UL_BWP.rach_ConfigCommon = &nr_rach_ConfigCommon;
   mac.nr_band = 78;
   NR_PUSCH_Config_t pusch_Config = {0};
   current_UL_BWP.pusch_Config = &pusch_Config;
@@ -389,8 +393,8 @@ TEST(pusch_power_control, pusch_power_control_state_initialization)
   uint32_t sum_bits_in_codeblocks = 56;
   int delta_pusch = 0;
   bool is_rar_tx_retx = true;
-  int preambleReceivedTargetPower = -96;
-  mac.ra.prach_resources.ra_preamble_rx_target_power = preambleReceivedTargetPower;
+  long preambleReceivedTargetPower = -96;
+  nr_rach_ConfigCommon.rach_ConfigGeneric.preambleReceivedTargetPower = preambleReceivedTargetPower;
 
   get_pusch_tx_power_ue(&mac,
                         num_rb,

@@ -320,7 +320,7 @@ static int nr_ulsch_procedures(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, boo
   NR_DL_FRAME_PARMS *frame_parms = &gNB->frame_parms;
 
   int nb_pusch = 0;
-  for (int ULSCH_id = 0; ULSCH_id < gNB->max_nb_pusch; ULSCH_id++) {
+  for (uint8_t ULSCH_id = 0; ULSCH_id < gNB->max_nb_pusch; ULSCH_id++) {
     if (ulsch_to_decode[ULSCH_id]) {
       nb_pusch++;
     }
@@ -333,7 +333,7 @@ static int nr_ulsch_procedures(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, boo
   uint8_t ULSCH_ids[nb_pusch];
   uint32_t G[nb_pusch];
   int pusch_id = 0;
-  for (int ULSCH_id = 0; ULSCH_id < gNB->max_nb_pusch; ULSCH_id++) {
+  for (uint8_t ULSCH_id = 0; ULSCH_id < gNB->max_nb_pusch; ULSCH_id++) {
 
     if (ulsch_to_decode[ULSCH_id]) {
 
@@ -428,7 +428,7 @@ static int nr_ulsch_procedures(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, boo
       LOG_D(PHY, "ULSCH received ok \n");
       ulsch->active = false;
       ulsch_harq->round = 0;
-      ulsch->last_iteration_cnt = ulsch->max_ldpc_iterations - 1; // Setting to max_ldpc_iterations - 1 is sufficient given that this variable is only used for checking for failure
+      ulsch->last_iteration_cnt = ulsch->max_ldpc_iterations; // Setting to max_ldpc_iterations is sufficient given that this variable is only used for checking for failure
     } else {
       LOG_D(PHY,
             "[gNB %d] ULSCH: Setting NAK for SFN/SF %d/%d (pid %d, ndi %d, status %d, round %d, RV %d, prb_start %d, prb_size %d, "
@@ -448,7 +448,7 @@ static int nr_ulsch_procedures(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, boo
       gNBdumpScopeData(gNB, ulsch->slot, ulsch->frame, "ULSCH_NACK");
       ulsch->handled = 1;
       LOG_D(PHY, "ULSCH %d in error\n",ULSCH_id);
-      ulsch->last_iteration_cnt = ulsch->max_ldpc_iterations; // Setting to max_ldpc_iterations is sufficient given that this variable is only used for checking for failure
+      ulsch->last_iteration_cnt = ulsch->max_ldpc_iterations + 1; // Setting to max_ldpc_iterations + 1 is sufficient given that this variable is only used for checking for failure
     }
   }
 
@@ -1138,23 +1138,22 @@ int phy_procedures_gNB_uespec_RX(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, N
   // Spectrum Listening Symbols
   c16_t **rxdataF_sen = gNB->common_vars.rxdataF[0];
   if (nr_slot_select(&gNB->gNB_config, frame_rx, slot_rx) == NR_UPLINK_SLOT && slot_rx == 8) {
+    const uint16_t n_symbols = (slot_rx % RU_RX_SLOT_DEPTH) * gNB->frame_parms.symbols_per_slot;
+    // Extracting 12th symbol
+    uint64_t symbol_offset = (n_symbols)*gNB->frame_parms.ofdm_symbol_size + (12) * gNB->frame_parms.ofdm_symbol_size;
+    int32_t *rx_signal = (int32_t *) &rxdataF_sen[0][symbol_offset];
+    // for(int i=0;i<gNB->frame_parms.ofdm_symbol_size;i++){
+    // 	LOG_D(E3AP, "i = %d, (%d  %d) \n",i,((c16_t*)rx_signal)[i].r,((c16_t*)rx_signal)[i].i);
+    // }
     e3_agent_control->sampling_counter++;
     if (e3_agent_control->sampling_counter > e3_agent_control->sampling_threshold) {
-      const uint16_t n_symbols = (slot_rx % RU_RX_SLOT_DEPTH) * gNB->frame_parms.symbols_per_slot;
-      // Extracting 12th symbol
-      uint64_t symbol_offset = (n_symbols)*gNB->frame_parms.ofdm_symbol_size + (12) * gNB->frame_parms.ofdm_symbol_size;
-      int32_t *rx_signal = (int32_t *)&rxdataF_sen[0][symbol_offset];
-
-      // for(int i = 0; i < gNB->frame_parms.ofdm_symbol_size; i++){
-      // 	LOG_D(E3AP, "i = %d, (%d  %d) \n",i, ((c16_t*) rx_signal)[i].r, ((c16_t*) rx_signal)[i].i);
-      // }
-
+      int fft_divisor = e3_agent_control->fft_size_divisor > 0 ? e3_agent_control->fft_size_divisor : 1; 
       T(T_GNB_PHY_UL_FREQ_SENSING_SYMBOL,
         T_INT(0),
         T_INT(frame_rx),
         T_INT(slot_rx),
         T_INT(0),
-        T_BUFFER(rx_signal, (gNB->frame_parms.ofdm_symbol_size) * sizeof(int32_t)));
+        T_BUFFER(rx_signal, (gNB->frame_parms.ofdm_symbol_size / fft_divisor) * sizeof(int32_t)));
       e3_agent_control->sampling_counter = 0;
     }
   }

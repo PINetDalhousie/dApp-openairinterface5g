@@ -34,6 +34,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "OCTET_STRING.h"
+#include "PHY/defs_common.h"
 #include "RRC/NR/nr_rrc_proto.h"
 #include "T.h"
 #include "asn_codecs.h"

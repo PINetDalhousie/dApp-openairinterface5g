@@ -21,6 +21,7 @@
 
 #include "phy_init.h"
 #include "common/utils/LOG/log.h"
+#include <stdio.h> 
 
 static const uint16_t dl_S_table_normal[10] = {3, 9, 10, 11, 12, 3, 9, 10, 11, 6};
 static const uint16_t dl_S_table_extended[10] = {3, 8, 9, 10, 3, 8, 9, 5, 0, 0};
@@ -86,6 +87,8 @@ int init_frame_parms(LTE_DL_FRAME_PARMS *frame_parms,
         frame_parms->nb_prefix_samples=(frame_parms->nb_prefix_samples*3)>>2;
         frame_parms->nb_prefix_samples0=(frame_parms->nb_prefix_samples0*3)>>2;
       } else {
+        printf("HERE ON THREQUARTER_FS\n");
+        // FFT size of 2048
         frame_parms->ofdm_symbol_size = 2048;
         frame_parms->samples_per_tti = 30720;
         frame_parms->first_carrier_offset = 2048-600;

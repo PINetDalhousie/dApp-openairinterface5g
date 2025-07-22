@@ -26,13 +26,20 @@
         <htmlTabIcon>log-in</htmlTabIcon>
         <TestCaseRequestedList>
                 000100
+                000200
         </TestCaseRequestedList>
         <TestCaseExclusionList>
         </TestCaseExclusionList>
 
         <testCase id="000100">
-                <class>DeployCoreNetwork</class>
+                <class>Terminate_5GCN</class>
+                <desc>Terminate 5G Core</desc>
+                <args>--type stop-basic</args>
+        </testCase>
+
+        <testCase id="000200">
+                <class>Initialize_5GCN</class>
                 <desc>Initialize 5G Core</desc>
-                <cn_id>matix-cn5g</cn_id>
+                <args>--type start-basic</args>
         </testCase>
 </testCaseList>

@@ -8,16 +8,19 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <grp.h>
+#include <time.h>
 
 #include "common/utils/LOG/log.h"
 
-#define CHUNK_SIZE 8192
+//#define CHUNK_SIZE 8192
+#define CHUNK_SIZE 32768
 #define UNUSED_SOCKET -2 // -1 is set for errors, thus we use -2 to indicate unused sockets
 
 #define IPC_BASE_DIR "/tmp/dapps"
 #define E3_IPC_SETUP_PATH IPC_BASE_DIR "/setup"
 #define E3_IPC_SOCKET_PATH IPC_BASE_DIR "/e3_socket" // outbound
 #define DAPP_IPC_SOCKET_PATH IPC_BASE_DIR "/dapp_socket" // inbound
+
 
 // ZeroMQ Connector Functions
 int zeromq_setup_initial_connection(E3Connector *self){
@@ -47,16 +50,23 @@ int zeromq_send_response(E3Connector *self, const uint8_t *response, size_t resp
 }
 
 int zeromq_setup_inbound_connection(E3Connector *self) {
-    int conflate = 1;
-    void *inbound_socket = zmq_socket(self->context, ZMQ_SUB);
-    int ret = zmq_connect(inbound_socket, self->inbound_endpoint);
-    zmq_setsockopt(inbound_socket, ZMQ_SUBSCRIBE, "", 0);
-    zmq_setsockopt(inbound_socket, ZMQ_CONFLATE, &conflate, sizeof(conflate)); // Keep only the last message
+    //int conflate = 1;
+    //void *inbound_socket = zmq_socket(self->context, ZMQ_SUB);
+    //int ret = zmq_connect(inbound_socket, self->inbound_endpoint);
+    //zmq_setsockopt(inbound_socket, ZMQ_SUBSCRIBE, "", 0);
+    //zmq_setsockopt(inbound_socket, ZMQ_CONFLATE, &conflate, sizeof(conflate)); // Keep only the last message
+
+    //Implementation change to account for multiple dApps
+    void *inbound_socket = zmq_socket(self->context, ZMQ_PULL);
+    int ret = zmq_bind(inbound_socket, self->inbound_endpoint);
+    //--------
+
     self->inbound_socket = inbound_socket;
     return ret;
 }
 
 int zeromq_receive(E3Connector *self, void *buffer, size_t buffer_size) {
+    //log_timestamp("RECEIVE");
     return zmq_recv(self->inbound_socket, buffer, buffer_size, 0);
 }
 
@@ -77,6 +87,7 @@ int zeromq_setup_outbound_connection(E3Connector *self) {
 }
 
 int zeromq_send(E3Connector *self, const uint8_t *payload, size_t payload_size) {
+    //log_timestamp("SEND");
     return zmq_send(self->outbound_socket, payload, payload_size, 0);
 }
 
@@ -109,7 +120,8 @@ int posix_setup_initial_connection(E3Connector *self){
     sock = socket(AF_INET, SOCK_STREAM, IPPROTO_SCTP);
     addr_in.sin_family = AF_INET;
     addr_in.sin_port = htons(9990);
-    addr_in.sin_addr.s_addr = inet_addr("127.0.0.1");
+    //addr_in.sin_addr.s_addr = inet_addr("192.168.70.161"); // address for gNb hosted on a container
+    addr_in.sin_addr.s_addr = inet_addr("192.168.100.1"); // address for gNB hosted on Baremetal
     ret = bind(sock, (struct sockaddr *)&addr_in, sizeof(addr_in));
   } else if (strncmp(self->setup_endpoint, "tcp", 3) == 0) {
     sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -199,7 +211,8 @@ int posix_setup_inbound_connection(E3Connector *self)
     sock = socket(AF_INET, SOCK_STREAM, IPPROTO_SCTP);
     addr_in.sin_family = AF_INET;
     addr_in.sin_port = htons(9999);
-    addr_in.sin_addr.s_addr = inet_addr("127.0.0.1");
+    //addr_in.sin_addr.s_addr = inet_addr("192.168.70.161"); // address for gNb hosted on a container
+    addr_in.sin_addr.s_addr = inet_addr("192.168.100.1"); // address for gNB hosted on Baremetal
     ret = bind(sock, (struct sockaddr *)&addr_in, sizeof(addr_in));
   } else if (strncmp(self->inbound_endpoint, "tcp", 3) == 0) {
     sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -236,6 +249,7 @@ int posix_setup_inbound_connection(E3Connector *self)
 }
 
 int posix_receive(E3Connector *self, void *buffer, size_t buffer_size) {
+    //log_timestamp("RECEIVE");
     return recv(self->inbound_connection_socket, buffer, buffer_size, 0);
 }
 
@@ -248,7 +262,9 @@ int posix_setup_outbound_connection(E3Connector *self) {
       sock = socket(AF_INET, SOCK_STREAM, IPPROTO_SCTP);
       addr_in.sin_family = AF_INET;
       addr_in.sin_port = htons(9991);
-      addr_in.sin_addr.s_addr = inet_addr("127.0.0.1");
+      //addr_in.sin_addr.s_addr = inet_addr("127.0.0.1");
+      //addr_in.sin_addr.s_addr = inet_addr("192.168.70.162"); //address for dApp hosted on another container
+      addr_in.sin_addr.s_addr = inet_addr("192.168.100.2"); // address for dApp hosted on SmartNIC
       ret = connect(sock, (struct sockaddr *)&addr_in, sizeof(addr_in));
     } else if (strncmp(self->outbound_endpoint, "tcp", 3) == 0) {
       sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -267,6 +283,7 @@ int posix_setup_outbound_connection(E3Connector *self) {
 }
 
 int posix_send(E3Connector *self, const uint8_t *payload, size_t payload_size) {
+    //log_timestamp("SEND");
     return send_in_chunks((intptr_t)self->outbound_socket, payload, payload_size);
 }
 
@@ -332,7 +349,7 @@ E3Connector *create_connector(const char *link_layer, const char *transport_laye
       // Not actually working because SCTP is not implemented in zeromq
       connector->setup_endpoint = "sctp://127.0.0.1:9990";
       connector->inbound_endpoint = "sctp://127.0.0.1:9999";
-      connector->outbound_endpoint = "sctp://127.0.0.1:9991";
+      connector->outbound_endpoint = "sctp://192.168.70.162:9991";
     } else {
       free(connector);
       LOG_E(E3AP, "Unsupported transport layer for ZeroMQ: %s\n", transport_layer);
@@ -365,9 +382,16 @@ E3Connector *create_connector(const char *link_layer, const char *transport_laye
       connector->inbound_endpoint = "tcp://127.0.0.1:9999";
       connector->outbound_endpoint = "tcp://127.0.0.1:9991";
     } else if (strncmp(transport_layer, "sctp", 4) == 0) {
-      connector->setup_endpoint = "sctp://127.0.0.1:9990";
-      connector->inbound_endpoint = "sctp://127.0.0.1:9999";
-      connector->outbound_endpoint = "sctp://127.0.0.1:9991";
+      /*
+      //Address for dApp hosted on another container
+      connector->setup_endpoint = "sctp://192.168.70.162:9990";
+      connector->inbound_endpoint = "sctp://192.168.70.161:9999";
+      connector->outbound_endpoint = "sctp://192.168.70.162:9991";
+      */
+      //Address for dApp hosted on SmartNIC
+      connector->setup_endpoint = "sctp://192.168.100.2:9990";
+      connector->inbound_endpoint = "sctp://192.168.100.1:9999";
+      connector->outbound_endpoint = "sctp://192.168.100.2:9991";
     } else {
       free(connector);
       LOG_E(E3AP, "Unsupported transport layer for POSIX: %s\n", transport_layer);

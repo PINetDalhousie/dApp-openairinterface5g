@@ -25,6 +25,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include "PHY/defs_common.h"
 #include "T.h"
 #include "assertions.h"
 #include "common/utils/T/T.h"

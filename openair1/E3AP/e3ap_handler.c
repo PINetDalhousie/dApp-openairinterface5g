@@ -1,4 +1,7 @@
 # include "e3ap_handler.h"
+# include <stdio.h>
+
+
 
 // Function to encode an E3 PDU
 int encode_E3_PDU(E3_PDU_t *pdu, uint8_t **buffer, size_t *buffer_size) {
@@ -19,11 +22,16 @@ int encode_E3_PDU(E3_PDU_t *pdu, uint8_t **buffer, size_t *buffer_size) {
       return -1;
     }
 
+    //printf("Buffer size: %zu\n\n", *buffer_size);
+
     asn_enc_rval_t enc_rval = aper_encode_to_buffer(&asn_DEF_E3_PDU, NULL, pdu, *buffer, *buffer_size);
     if (enc_rval.encoded == -1) {
         LOG_E(E3AP, "APER encoding failed for type: %s\n", enc_rval.failed_type ? enc_rval.failed_type->name : "Unknown");
+        //return -1;
+        //printf("Failed\n");
         return -1;
     }
+    //printf("SUCCESS\n");
 
     *buffer_size = enc_rval.encoded;
     return 0;
@@ -143,7 +151,7 @@ E3_PDU_t* create_setup_request(int ranIdentifier, long *ranFunctions, size_t ran
 }
 
 
-E3_PDU_t* create_indication_message(const int32_t *payload, size_t payload_length) {
+E3_PDU_t* create_indication_message(const int32_t *payload, size_t payload_length, uint32_t sequence_number) {
     E3_PDU_t *pdu = malloc(sizeof(E3_PDU_t));
     if (!pdu) {
         LOG_E(E3AP, "Failed to allocate memory for E3_PDU");
@@ -159,14 +167,22 @@ E3_PDU_t* create_indication_message(const int32_t *payload, size_t payload_lengt
         return NULL;
     }
 
-    pdu->choice.indicationMessage->protocolData.buf = malloc(payload_length);
+    // Allocate memory for the sequence number + payload
+    size_t total_size = sizeof(uint32_t) + payload_length;
+    //pdu->choice.indicationMessage->protocolData.buf = malloc(payload_length);
+    pdu->choice.indicationMessage->protocolData.buf = malloc(total_size);
     if (!pdu->choice.indicationMessage->protocolData.buf) {
         LOG_E(E3AP, "Failed to allocate memory for protocolData\n");
         ASN_STRUCT_FREE(asn_DEF_E3_PDU, pdu);
         return NULL;
     }
+
+    //printf("sequence number = %zu\n", sequence_number);
     memcpy(pdu->choice.indicationMessage->protocolData.buf, payload, payload_length);
-    pdu->choice.indicationMessage->protocolData.size = payload_length;
+
+    memcpy(pdu->choice.indicationMessage->protocolData.buf+ sizeof(uint32_t), &sequence_number, sizeof(uint32_t));
+
+    pdu->choice.indicationMessage->protocolData.size = total_size;
 
     return pdu;
 }

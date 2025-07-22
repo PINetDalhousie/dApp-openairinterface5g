@@ -35,6 +35,7 @@
 #include "INTEGER.h"
 #include "ngap_msg_includes.h"
 #include "OCTET_STRING.h"
+#include "PHY/defs_common.h"
 #include "T.h"
 #include "assertions.h"
 #include "common/utils/T/T.h"

@@ -25,7 +25,6 @@
 #include <stdint.h>
 #include <arpa/inet.h>
 #include <string.h> // For memcpy
-#include <stdio.h>
 
 #define PRINT_NAS_ERROR(...) fprintf(stderr, ##__VA_ARGS__)
 

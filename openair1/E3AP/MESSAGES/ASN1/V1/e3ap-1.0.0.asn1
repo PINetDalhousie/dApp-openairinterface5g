@@ -10,7 +10,9 @@ E3 DEFINITIONS AUTOMATIC TAGS ::= BEGIN
     }
 
     E3-IndicationMessage ::= SEQUENCE {
-        protocolData          OCTET STRING (SIZE(1..8192))
+        -- protocolData          OCTET STRING (SIZE(1..8192))
+        protocolData          OCTET STRING (SIZE(1..32768))
+
     }
 
     E3-ControlAction ::= SEQUENCE {

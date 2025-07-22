@@ -33,6 +33,7 @@
 /*MAC*/
 #include "NR_MAC_COMMON/nr_mac.h"
 #include "NR_MAC_gNB/nr_mac_gNB.h"
+#include "NR_MAC_COMMON/nr_mac_extern.h"
 #include "LAYER2/NR_MAC_gNB/mac_proto.h"
 #include "LAYER2/RLC/rlc.h"
 
@@ -42,10 +43,6 @@
 /*Softmodem params*/
 #include "executables/softmodem-common.h"
 #include "../../../nfapi/oai_integration/vendor_ext.h"
-
-#ifdef E3_AGENT
-#include <openair1/E3AP/e3_agent.h>
-#endif // E3_AGENT
 
 ////////////////////////////////////////////////////////
 /////* DLSCH MAC PDU generation (6.1.2 TS 38.321) */////
@@ -76,26 +73,18 @@ int get_dl_tda(const gNB_MAC_INST *nrmac, int slot)
 }
 
 #ifdef E3_AGENT
-void nr_update_prb_policy(module_id_t module_idP, frame_t frame, slot_t slot)
+void nr_update_prb_policy(module_id_t module_id, frame_t frame, sub_frame_t slot)
 {
-  gNB_MAC_INST *gNB = RC.nrmac[module_idP];
+  gNB_MAC_INST *mac = RC.nrmac[module_id];
 
-  NR_SCHED_ENSURE_LOCKED(&gNB->sched_lock);
   LOG_W(NR_MAC, "Barred_PRBs ");
-
-  pthread_mutex_lock(&e3_agent_control->mutex);
-  if (e3_agent_control->ready) {
-    memcpy(gNB->ulprbbl, e3_agent_control->dyn_prbbl, MAX_BWP_SIZE * sizeof(uint16_t));
-    e3_agent_control->ready = 0; // Reset ready flag for next production
+  for (int j = 0; j < 275; j++) {
+    if (mac->dyn_prbbl[j] == 0x3FFF)
+      printf("%d ", j);
   }
-  pthread_mutex_unlock(&e3_agent_control->mutex);
-
-  for (int i = 0; i < MAX_BWP_SIZE; i++) {
-    if (gNB->ulprbbl[i] == 0x3FFF)
-      printf("%d ", i);
-  }
-
   printf("\n");
+
+  memcpy(mac->ulprbbl, mac->dyn_prbbl, 275 * sizeof(mac->dyn_prbbl[0]));
 }
 #endif // E3_AGENT
 
@@ -349,7 +338,7 @@ int nr_write_ce_dlsch_pdu(module_id_t module_idP,
   return offset;
 }
 
-static void nr_store_dlsch_buffer(module_id_t module_id, frame_t frame, slot_t slot)
+static void nr_store_dlsch_buffer(module_id_t module_id, frame_t frame, sub_frame_t slot)
 {
   UE_iterator(RC.nrmac[module_id]->UE_info.list, UE) {
     NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
@@ -453,7 +442,7 @@ static dl_bwp_info_t get_bwp_start_size(gNB_MAC_INST *mac, NR_UE_info_t *UE)
 
 static bool allocate_dl_retransmission(module_id_t module_id,
                                        frame_t frame,
-                                       slot_t slot,
+                                       sub_frame_t slot,
                                        int *n_rb_sched,
                                        NR_UE_info_t *UE,
                                        int beam_idx,
@@ -627,7 +616,7 @@ static int comparator(const void *p, const void *q) {
 
 static void pf_dl(module_id_t module_id,
                   frame_t frame,
-                  slot_t slot,
+                  sub_frame_t slot,
                   NR_UE_info_t **UE_list,
                   int max_num_ue,
                   int num_beams,
@@ -897,7 +886,7 @@ static void pf_dl(module_id_t module_id,
   }
 }
 
-static void nr_dlsch_preprocessor(module_id_t module_id, frame_t frame, slot_t slot)
+static void nr_dlsch_preprocessor(module_id_t module_id, frame_t frame, sub_frame_t slot)
 {
   gNB_MAC_INST *mac = RC.nrmac[module_id];
   NR_UEs_t *UE_info = &mac->UE_info;
@@ -955,7 +944,7 @@ nr_pp_impl_dl nr_init_dlsch_preprocessor(int CC_id) {
 
 void nr_schedule_ue_spec(module_id_t module_id,
                          frame_t frame,
-                         slot_t slot,
+                         sub_frame_t slot,
                          nfapi_nr_dl_tti_request_t *DL_req,
                          nfapi_nr_tx_data_request_t *TX_req)
 {
@@ -1058,11 +1047,11 @@ void nr_schedule_ue_spec(module_id_t module_id,
           TBS,
           current_harq_pid,
           harq->round,
-          nr_get_rv(harq->round % 4),
+          nr_rv_round_map[harq->round%4],
           harq->ndi,
-          pucch ? pucch->timing_indicator : 0,
-          pucch ? pucch->frame : 0,
-          pucch ? pucch->ul_slot : 0,
+          pucch->timing_indicator,
+          pucch->frame,
+          pucch->ul_slot,
           sched_pdsch->pucch_allocation,
           sched_ctrl->tpc1);
 
@@ -1118,7 +1107,7 @@ void nr_schedule_ue_spec(module_id_t module_id,
       pdsch_pdu->mcsTable[0] = 0;
     }
     AssertFatal(harq->round < gNB_mac->dl_bler.harq_round_max,"%d", harq->round);
-    pdsch_pdu->rvIndex[0] = nr_get_rv(harq->round % 4);
+    pdsch_pdu->rvIndex[0] = nr_rv_round_map[harq->round % 4];
     pdsch_pdu->TBSize[0] = TBS;
     pdsch_pdu->dataScramblingId = *scc->physCellId;
     pdsch_pdu->nrOfLayers = nrOfLayers;
@@ -1250,7 +1239,7 @@ void nr_schedule_ue_spec(module_id_t module_id,
           dci_payload.ndi,
           dci_payload.rv,
           dci_payload.tpc,
-          pucch ? pucch->timing_indicator : 0);
+          pucch->timing_indicator);
 
     const int rnti_type = TYPE_C_RNTI_;
     fill_dci_pdu_rel15(&UE->sc_info,

@@ -15,8 +15,16 @@
   - Ping
   - Iperf
   - Iperf2_Unidir
-  - DeployCoreNetwork
-  - UndeployCoreNetwork
+  - Deploy_EPC
+  - Undeploy_EPC
+  - Initialize_HSS
+  - Terminate_HSS
+  - Initialize_MME
+  - Terminate_MME
+  - Initialize_SPGW
+  - Terminate_SPGW
+  - Initialize_5GCN
+  - Terminate_5GCN
   - IdleSleep
   - Build_Image
   - Build_Run_Tests
@@ -24,6 +32,8 @@
   - Undeploy_Object
   - Cppcheck_Analysis
   - Deploy_Run_PhySim
+  - DeployGenObject
+  - UndeployGenObject
   - LicenceAndFormattingCheck
   - Push_Local_Registry
   - Pull_Local_Registry

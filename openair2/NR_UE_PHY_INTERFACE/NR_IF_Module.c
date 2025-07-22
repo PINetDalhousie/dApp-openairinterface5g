@@ -38,6 +38,7 @@
 #include "NR_IF_Module.h"
 #include "NR_MAC_UE/mac_proto.h"
 #include "assertions.h"
+#include "NR_MAC_UE/mac_extern.h"
 #include "SCHED_NR_UE/fapi_nr_ue_l1.h"
 #include "executables/softmodem-common.h"
 #include "openair2/RRC/NR_UE/L2_interface_ue.h"
@@ -390,7 +391,8 @@ static bool is_my_dci(NR_UE_MAC_INST_t *mac, nfapi_nr_dl_dci_pdu_t *received_pdu
      already. Only once the RA procedure succeeds is the CRNTI value updated
      to the TC_RNTI. */
   if (get_softmodem_params()->nsa) {
-    if (received_pdu->RNTI != mac->crnti && (received_pdu->RNTI != mac->ra.ra_rnti))
+    if (received_pdu->RNTI != mac->crnti &&
+        (received_pdu->RNTI != mac->ra.ra_rnti || mac->ra.RA_RAPID_found))
       return false;
   }
   if (IS_SA_MODE(get_softmodem_params())) {
@@ -1121,13 +1123,8 @@ static nr_dci_format_t handle_dci(NR_UE_MAC_INST_t *mac,
   // if notification of a reception of a PDCCH transmission of the SpCell is received from lower layers
   // if the C-RNTI MAC CE was included in Msg3
   // consider this Contention Resolution successful
-  if (mac->msg3_C_RNTI && mac->ra.ra_state == nrRA_WAIT_CONTENTION_RESOLUTION)
+  if (mac->ra.msg3_C_RNTI && mac->ra.ra_state == nrRA_WAIT_CONTENTION_RESOLUTION)
     nr_ra_succeeded(mac, gNB_index, frame, slot);
-
-  // suspend RAR response window timer
-  // (in RFsim running multiple slot in parallel it might expire while decoding MSG2)
-  if (mac->ra.ra_state == nrRA_WAIT_RAR)
-    nr_timer_suspension(&mac->ra.response_window_timer);
 
   return nr_ue_process_dci_indication_pdu(mac, frame, slot, dci);
 }
@@ -1190,7 +1187,7 @@ void update_harq_status(NR_UE_MAC_INST_t *mac, uint8_t harq_pid, uint8_t ack_nac
       current_harq->ack_received = true;
     }
   }
-  else if (!get_FeedbackDisabled(mac->sc_info.downlinkHARQ_FeedbackDisabled_r17, harq_pid)) {
+  else {
     //shouldn't get here
     LOG_E(NR_MAC, "Trying to process acknack for an inactive harq process (%d)\n", harq_pid);
   }
@@ -1296,14 +1293,11 @@ static uint32_t nr_ue_dl_processing(NR_UE_MAC_INST_t *mac, nr_downlink_indicatio
           ret_mask |= (handle_dlsch(mac, dl_info, i)) << FAPI_NR_RX_PDU_TYPE_DLSCH;
           break;
         case FAPI_NR_RX_PDU_TYPE_RAR:
-          if (!dl_info->rx_ind->rx_indication_body[i].pdsch_pdu.ack_nack) {
-            LOG_W(PHY, "Received a RAR-Msg2 but LDPC decode failed\n");
-            // resume RAR response window timer if MSG2 decoding failed
-            nr_timer_suspension(&mac->ra.response_window_timer);
-          } else {
-            LOG_I(PHY, "RAR-Msg2 decoded\n");
-          }
           ret_mask |= (handle_dlsch(mac, dl_info, i)) << FAPI_NR_RX_PDU_TYPE_RAR;
+          if (!dl_info->rx_ind->rx_indication_body[i].pdsch_pdu.ack_nack)
+            LOG_W(PHY, "Received a RAR-Msg2 but LDPC decode failed\n");
+          else
+            LOG_I(PHY, "RAR-Msg2 decoded\n");
           break;
         case FAPI_NR_CSIRS_IND:
           ret_mask |= (handle_csirs_measurements(mac,
@@ -1337,15 +1331,12 @@ int nr_ue_dl_indication(nr_downlink_indication_t *dl_info)
   return ret2;
 }
 
-void nr_ue_slot_indication(uint8_t mod_id, bool is_tx)
+void nr_ue_slot_indication(uint8_t mod_id)
 {
   NR_UE_MAC_INST_t *mac = get_mac_inst(mod_id);
   int ret = pthread_mutex_lock(&mac->if_mutex);
   AssertFatal(!ret, "mutex failed %d\n", ret);
-  if (is_tx)
-    update_mac_ul_timers(mac);
-  else
-    update_mac_dl_timers(mac);
+  update_mac_timers(mac);
   ret = pthread_mutex_unlock(&mac->if_mutex);
   AssertFatal(!ret, "mutex failed %d\n", ret);
 }

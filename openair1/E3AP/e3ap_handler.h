@@ -18,7 +18,7 @@
 
 E3_PDU_t *create_setup_request(int ranIdentifier, long *ranFunctions, size_t ranFunctionsCount);
 E3_PDU_t *create_setup_response(long responseCode);
-E3_PDU_t *create_indication_message(const int32_t *payload, size_t payload_length);
+E3_PDU_t *create_indication_message(const int32_t *payload, size_t payload_length, uint32_t sequence_number);
 int encode_E3_PDU(E3_PDU_t *pdu, uint8_t **buffer, size_t *buffer_size);
 E3_PDU_t *decode_E3_PDU(uint8_t *buffer, size_t buffer_size);
 void free_E3_PDU(E3_PDU_t *pdu);
